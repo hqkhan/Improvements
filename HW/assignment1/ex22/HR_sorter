@@ -1,0 +1,38 @@
+#!/bin/bash
+export LC_ALL=C
+
+function scorefile() {
+	occurrence=$(grep -c -i $2 $1)
+        let "scoreinput=$occurrence*$3"
+	return $scoreinput
+}
+
+function printing() {
+for xx in `ls submissions/*`
+do
+	echo ${array[$var2]} ${xx##*/} #  | cut -d 'submissions/'   
+	var2=$var2+1
+done
+}
+
+var=0
+var2=0
+for xx in `ls submissions/*`
+do
+	filename=$xx
+	let "sum=0"
+#	echo " main:"$filename
+	while read -r f1 f2
+	do
+                word=$f1
+                let "value=$f2"
+		scorefile $filename $word $value
+	       let "score= $?"
+		let "sum=$sum+$score"
+	#	echo $sum SUM IS
+#		echo SUM IS $sum
+	done<"input.txt"
+      let  "array[$var]=$sum"
+	var=$var+1
+done
+printing | sort -nr 

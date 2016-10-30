@@ -1,0 +1,10 @@
+Type a number to find out its color:red
+Type a number to find out its color:blue
+Type a number to find out its color:green
+Type a number to find out its color:orange
+Type a number to find out its color:yellow
+Type a number to find out its color:purple
+Type a number to find out its color:brown
+Type a number to find out its color:brown
+Type a number to find out its color:brown
+Type a number to find out its color:

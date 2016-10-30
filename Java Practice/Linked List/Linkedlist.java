@@ -46,5 +46,27 @@ public class LinkedList{
 	}
 	
 
+	public void insert(Link newnode){
+		if(first == null) first = newnode; //first case is if list is empty
+		if(first.num >=newnode.num){ //insert in the beginning
+		   newnode.next = first.next; 
+		   first = newnode;
+		}
+		else{
+		     Link current = first; //starting from beginning
+		     while (current.next != null && current.next.num < newnode.num){ //not end and if my node is greater then keep moving forward
+			   current = current.next; //keep moving		
+		     }
+		     
+		     if(current.next == null){ //we are at the end of list, then we can insert at the end
+			current.next = newnode; //attach last node to new node
+			newnode.next = null; //last node is now the last
+		     }
+		     else{ //we need to insert in the middle
+			  newnode.next = current.next; //attach new node
+			  current.next = newnode; //change where current.next is pointing
+			}
+		}	
+	}
 
 }
