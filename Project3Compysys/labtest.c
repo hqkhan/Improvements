@@ -42,8 +42,8 @@ double firsttime = 1;
         double sumT(int i)
      {
 		double sum=0;
-        
-    	    for(int j=0; j<numDiffeq+1; j++)
+            int j;
+    	    for(j=0; j<numDiffeq+1; j++)
 		{ 
 			if(j==i){j=i+1;} //if diagonal, we ignore because sum will be 0
 			sum+=(Tcore[i]-newAr[j])/Rmatrix[i][j]; 
@@ -55,9 +55,9 @@ double firsttime = 1;
 
 	double f(int core) //core is just to know which core we are evaluating the function of
 	{
-		printf("Power is: %lf\n",power[core]);
-		printf("sum is: %lf\n",sumT(core));
-		printf("capac is: %lf\n",Carray[core]);
+	//	printf("Power is: %lf\n",power[core]);
+	//	printf("sum is: %lf\n",sumT(core));
+	//	printf("capac is: %lf\n",Carray[core]);
 		return((power[core] - sumT(core))/Carray[core]);
 	}
 
