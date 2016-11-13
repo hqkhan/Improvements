@@ -26,7 +26,7 @@ double Tcore[5]; //stores main temperatures
 int numDiffeq=4; //number of cores
 //storing temporary temperatures in between coefficients calculations
 double newAr[5];
-double Age[5]={0,0,0,0,0};	
+double Age[5];	
 
 //power array
 double power[4];
@@ -41,11 +41,11 @@ double firsttime = 1;
 	// Calculate (Ti-Tj)/Ri,j with i fixed and j varying
         double sumT(int i)
      {
-	    double sum=0;
+		double sum=0;
             int j;
     	    for(j=0; j<numDiffeq+1; j++)
 		{ 
-			if(j==i){j=j+1;} //if diagonal, we ignore because sum will be 0
+			if(j==i){j=i+1;} //if diagonal, we ignore because sum will be 0
 			sum+=(Tcore[i]-newAr[j])/Rmatrix[i][j]; 
 	      	}	
 		
@@ -83,13 +83,21 @@ double firsttime = 1;
 /*****************************************************************/
 /******************RUNGE KUTTA************************************/
 /*****************************************************************/	
-	double rk(int numDiffeq, double Ar[], double (*f)(int) ){
+	double rk(int numDiffeq, double Ar[], double initialValue, double (*f)(int) ){
 		assert(numDiffeq>0);
 		assert(*f != NULL);
 		int i; //counter for our for loops
 
 		//FINAL SOLUTIONS WILL BE IN Ar array BASED ON WHAT THE USER GIVES
 
+		//setting initial values depending upon parameters
+		if(firsttime ==1){
+			firsttime=0;
+			for(i=0; i<numDiffeq+1; i++){
+			    Ar[i]=initialValue; //Ar array is where main calculations occur 	
+			    newAr[i]=initialValue; //sumT uses this array which will be 0 in the beginning
+			}
+		}
 	
 		for (i=0;i<numDiffeq;i++)
 		{
@@ -114,6 +122,7 @@ double firsttime = 1;
 		newAr[1] = Ar[1] + K[1][1]/2;
 		newAr[2] = Ar[2] + K[1][2]/2;
 		newAr[3] = Ar[3] + K[1][3]/2;
+		
 		
 		//find K3
 		for (i=0;i<numDiffeq;i++)
@@ -154,6 +163,7 @@ double firsttime = 1;
 
 	    int n=0; //# of diff eq
 	    int i=0; //current core we are working
+	    int count=0;
 	    int core;
 	    double pow;
 		 
@@ -179,8 +189,8 @@ double firsttime = 1;
 			}	
 			n=0; //n is only to read power file based on number of columns	
 			
-			rk(numDiffeq,Tcore, tempfunct);//sumT uses ambient temp at the beginning 
-			rk(numDiffeq, Age, betafunct); //finding Age of every core
+			rk(numDiffeq,Tcore, Tamb, tempfunct);//sumT uses ambient temp at the beginning 
+			rk(numDiffeq, Age, 0, betafunct); //finding Age of every core
 
 			time=time+h;
 			fprintf(of,"%lf ",time); //Writing time first entry
@@ -208,12 +218,8 @@ int main(int argc,char* argv[])
 	
 	assert(Tamb>0); //checking that temperature can't be less than 0 
 
-	for (i= 0; i<5;i++){
-		Tcore[i]=Tamb;
-		newAr[i]=Tamb;
-	}
+	for (i= 0; i<4;i++)Tcore[i]=Tamb;
 
-	//ARRAYS THAT WILL BE PASSED TO RK METHOD SHOULD BE INITIALIZED TO THE CORRECT INITIAL VALUES BEFOREHAND
 	FILE *paramFile;	
 	FILE *powerFile;
 	FILE *outputFile;
