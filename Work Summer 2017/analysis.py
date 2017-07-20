@@ -7,7 +7,6 @@ import matplotlib.mlab as mlab
 from scipy.stats import norm
 import warnings
 import matplotlib.cbook
-import Parallel as Pll
 
 class Grid_Block:
     def __init__(self, num, vert, size_of_block):
@@ -41,7 +40,8 @@ def simulate_true(max_size, process_noise):
     F = np.array([[1, 0, delta_t, 0], [0, 1, 0, delta_t], [0, 0, 1, 0], [0, 0, 0, 1]], dtype=float)
     Q = np.multiply(process_noise, np.array([[(delta_t**3)/3, 0, (delta_t**2)/2, 0], [0, (delta_t**3)/3, 0, (delta_t**2)/2], [(delta_t**2)/2, 0, delta_t, 0], [0, (delta_t**2)/2, 0, delta_t]], dtype=float))
     sqrt_of_Q = scipy.linalg.sqrtm(Q)
-    for time in range(20):
+    
+    for time in range(60):
         if true[0] >max_size-1 or true[1] >max_size-1 or true[0] <0 or true[1] <0: #don't let it escape grid
             break
         else:
@@ -56,6 +56,7 @@ motion = False
 scale = 2
 pause_time = 1.0
 
+#NOT DOING FAILS ANYMORE
 def plot_fail_vs_npart(size_of_block, fail_rate, n_part):
     plt.figure()
     plt.xlabel('Number of Particles')
@@ -84,67 +85,119 @@ def plot_analysis(points, line_type, label_filter):
     cdf_curve = np.cumsum(gaussian_pdf, dtype=float)
     cdf_curve /= cdf_curve[-1]
     plt.plot(bins_k, cdf_curve, line_type, linewidth=2, label= label_filter)
-
-def get_errors(truth, pts):
+    plt.legend(bbox_to_anchor=(0.95, 0.5), loc=1, borderaxespad=0.)     
+    
+def get_errors(truth, pts, position, velocity):
     dist = []
-    for i, truth_pt in enumerate(truth):    
-        xdist = (truth_pt[0]-pts[i][0])**2; ydist = (truth_pt[1]-pts[i][1])**2
-        dist.append((xdist+ydist)**0.5) 
-    return dist
+    if position:
+        for i, truth_pt in enumerate(truth):    
+            xdist = (truth_pt[0]-pts[i][0])**2; ydist = (truth_pt[1]-pts[i][1])**2
+            dist.append((xdist+ydist)**0.5) 
+        return dist
+    elif velocity:
+        for i, truth_pt in enumerate(truth):    
+            xdist = (truth_pt[2]-pts[i][2])**2; ydist = (truth_pt[3]-pts[i][3])**2
+            dist.append((xdist+ydist)**0.5) 
+        return dist
 
-def setup_plot(title, xlabel, ylabel, xtick):
+def setup_plot(title, xlabel, ylabel):
      plt.figure()
      plt.title(title)
      plt.xlabel(xlabel)
      plt.ylabel(ylabel)
-     #plt.xticks(xtick)
 
-def parallel_setup():
-    pass
-     
-def main(): #put this under main grid
+def run_in_parallel(sim_num, grid, process_noise, n_part):
+    truth = simulate_true(256, process_noise)
+    grid.set_truth(truth)
+    filtered_states, smooth_states = grid.analysis_main(None, True, False)
+    particle_states = Pll.parallel_test(grid.analysis_main)(n_part, kalman=False, particle=True)
+    
+    return [[get_errors(truth, state, True, False) for states in particle_states for state in states], get_errors(truth, filtered_states, True, False), get_errors(truth, smooth_states, True, False), [get_errors(truth, state, False, True) for states in particle_states for state in states], get_errors(truth, filtered_states, False, True), get_errors(truth, smooth_states, False, True)]
+    
+def parallel_setup(n_part, grid, num_testcases, process_noise):
+    error_p_pos = {key: [] for key in n_part}
+    error_p_vel = {key: [] for key in n_part}
+    
+    all_errors = Pll.parallel_test(run_in_parallel)(np.arange(0, num_testcases), grid=grid, process_noise = process_noise, n_part = n_part)
+    
+    error_k_pos   = [error for p, k, s, pv, kv, sv in all_errors for error in k]
+    error_s_pos = [error for p, k, s, pv, kv, sv in all_errors for error in s]
+    particle_pos = [error for p, k, s, pv, kv, sv in all_errors for error in p]
+    
+    error_k_vel   = [error for p, k, s, pv, kv, sv in all_errors for error in kv]
+    error_s_vel = [error for p, k, s, pv, kv, sv in all_errors for error in sv]
+    particle_vel = [error for p, k, s, pv, kv, sv in all_errors for error in pv]
+    
+    for i, part in enumerate(n_part):
+        error_p_pos[part] = particle_pos[i]
+        error_p_vel[part] = particle_vel[i]
+        
+    return error_p_pos, error_k_pos, error_s_pos, error_p_vel, error_k_vel, error_s_vel
+
+def grid_parallel(grids, n_part, num_testcases, process_noise):
+    
+def main(): 
+    random.seed(5)
     warnings.filterwarnings("ignore",category=matplotlib.cbook.mplDeprecation)
     grid_sizes = [1, 2, 4, 8]; max_size = 256
-    random.seed(5)
-    num_testcases = 10  
-    error_p, error_k, error_s = [], [], []
-    n_part = [100, 300, 500, 1000]
-    process_noise = [0.5, 1.0, 1.5, 2.0]
-    num_particles = 300
+    process_noise = 1.0
+    mec = ['r--', 'k--', 'c--', 'm--', 'y--', 'g:']
+    n_part = [100, 300, 500, 800, 1000, 2000]
+    grids = []
     
-    for size in grid_sizes[3:4]:
-        print("Working on grid %d"%int(size))
+    num_testcases = 100
+    
+    for size in grid_sizes[:]:
+        print("Working on cell size: %d"%int(size))
         grid = Main_Grid(int(size), max_size)
-        fail_total = 0
-        for noise in process_noise:
+        grid.set_process_noise(process_noise)
+        grids.append(grid)
+        
+        error_p_pos, error_k_pos, error_s_pos, error_p_vel, error_k_vel, error_s_vel = parallel_setup(n_part, grid, num_testcases, process_noise)
+        
+        #plot all positional data
+        setup_plot('PvK cell size:%d '%size, 'Error (pos)', 'Percentile')
+        plot_analysis(error_k_pos, 'b--', 'Kalman')
+        plot_analysis(error_s_pos, 'g--', 'Smoothened')
+        for i, num in enumerate(n_part): #have particle errors for tests with different particle #
+            plot_analysis(error_p_pos[num], mec[i], 'Particle %d'%num)  
+            
+        #plot all positional data
+        setup_plot('PvK cell size:%d '%size, 'Error (vel)', 'Percentile') #np.arange(0, max(max(error_k, error_s, error_p)), 0.5)
+        plot_analysis(error_k_vel, 'b--', 'Kalman')
+        plot_analysis(error_s_vel, 'g--', 'Smoothened')
+        for i, num in enumerate(n_part): #have particle errors for tests with different particle #
+            plot_analysis(error_p_vel[num], mec[i], 'Particle %d'%num)  
+            
+            
+        """
+        for noise in process_noise: #simulate targets with different process noises
+            fail_total = 0
             grid.set_process_noise(noise)
+            
             for testcase in range(num_testcases):
                 truth = simulate_true(max_size, noise)
                 grid.set_truth(truth)
-                grid.set_num_particles(num_particles)
-                particle_states, code, filtered_states, smooth_states = Pll.parallel(grid.analysis_main())()
                 
-                if code == 0: #PF failed
-                    error_p.append(100)
-                    fail_total+= 1
-                    print('Failed on %d'%testcase)
-                elif code == 1: #did not fail
-                    error_p.extend(get_errors(truth, particle_states))
+                #for num_particles in n_part:
+                grid.set_num_particles(300)
+                particle_states, code, filtered_states, smooth_states = grid.analysis_main(True, True)
                 
+                error_p.extend(get_errors(truth, particle_states))
                 error_k.extend(get_errors(truth, filtered_states))
                 error_s.extend(get_errors(truth, smooth_states))
-            
+           
             #setup plot
-            setup_plot('PvK cell size:%d '%size +'noise:%1.1f'%noise, 'Error', 'Percentile', np.arange(0, max(max(error_k, error_s, error_p)), 0.5))
+            setup_plot('PvK cell size:%d '%size +'noise:%1.1f'%noise, 'Error', 'Percentile') #np.arange(0, max(max(error_k, error_s, error_p)), 0.5)
+            print('Failed #: %d;' %fail_total+ ' Noise: %1.1f' %noise)
             plot_analysis(error_k, 'b--', 'Kalman')
             plot_analysis(error_s, 'g--', 'Smoothened')
             plot_analysis(error_p, 'r--', 'Particle')
             plt.legend(bbox_to_anchor=(0.95, 0.3), loc=1, borderaxespad=0.)
             error_p, error_k, error_s = [], [], []
+        """    
         #error vs number of particles
         #plot_error_vs_npart(size, error_p, num_particles)
-        #plot_fail_vs_npart(size, fail_total, num_particles)  
-            
             
         
 class Main_Grid:
@@ -164,21 +217,32 @@ class Main_Grid:
                 self.blocks.append(Grid_Block(num, (x,y), self.size_of_block))
                 num+=1
         
-    def analysis_main(self):
-        #simulate true trajectory
-        self.measurements = self.get_particle_measurements()
-        self.kalman_measurements = self.get_kalman_measurements()
-        
-        #Particle filter analysis
-        particle_states, code = self.Particle_Filter()
-        
+    def analysis_main(self, num_particles, kalman, particle):
+        if num_particles != None:
+            self.num_particles = num_particles
+            
+        #Particle filter 
+        if particle and kalman is not True:
+            self.measurements = self.get_particle_measurements()
+            particle_states = self.Particle_Filter()
+            return [particle_states]
+      
         #Kalman filter
-        filtered_states, smooth_states = self.Kalman_Filter([x for x, y in self.kalman_measurements], [y for x, y in self.kalman_measurements], True)
+        if kalman and particle is not True:
+            self.kalman_measurements = self.get_kalman_measurements()
+            filtered_states, smooth_states = self.Kalman_Filter([x for x, y in self.kalman_measurements], [y for x, y in self.kalman_measurements], True)
+            return filtered_states, smooth_states
         
-        #self.plot_results(filtered_states, particle_states)
-        #self.plot_truth('All', 'b--', 10)
-        return particle_states, code, filtered_states, smooth_states    
+        elif kalman and particle:
+            self.measurements = self.get_particle_measurements()
+            particle_states = self.Particle_Filter()
+            self.kalman_measurements = self.get_kalman_measurements()
+            filtered_states, smooth_states = self.Kalman_Filter([x for x, y in self.kalman_measurements], [y for x, y in self.kalman_measurements], True)
+            return  particle_states, filtered_states, smooth_states
         
+         #  self.plot_results(filtered_states, particle_states)
+         #  self.plot_truth('All', 'b--', 10)
+    
     def set_truth (self, truth):
         self.states = truth
     
@@ -198,7 +262,7 @@ class Main_Grid:
         
         #Populating the first cell randomly in a uniform way
         for n in range(self.num_particles):
-            particles.append(np.array([np.random.normal(self.blocks[self.grid_association[0]].center[0], self.size_of_block), np.random.normal(self.blocks[self.grid_association[0]].center[1], self.size_of_block), np.random.normal(mu, sigma), np.random.normal(mu, sigma)]))    
+            particles.append(np.array([random.uniform(self.blocks[self.grid_association[0]].x_min, self.blocks[self.grid_association[0]].x_max), random.uniform(self.blocks[self.grid_association[0]].y_min, self.blocks[self.grid_association[0]].y_max), np.random.normal(mu, sigma), np.random.normal(mu, sigma)]))    
         
         x_mean, y_mean, x_vel, y_vel = map(lambda x: sum(x)/self.num_particles, [[part[0] for part in particles], [part[1] for part in particles], [part[2] for part in particles], [part[3] for part in particles]])
         state_particles.append(np.array([x_mean, y_mean, x_vel, y_vel]))
@@ -211,8 +275,7 @@ class Main_Grid:
         for i, grid in enumerate(self.grid_association[1:]):
             #predict
             for l, part in enumerate(particles): 
-                #wk = np.dot(sqrt_of_Q, np.array([np.random.normal(0, self.size_of_block*2), np.random.normal(0, self.size_of_block*2), np.random.normal(mu, sigma), np.random.normal(mu, sigma)]))
-                wk = np.dot(sqrt_of_Q, np.array([np.random.normal(0, 1), np.random.normal(0, 1), np.random.normal(mu, sigma), np.random.normal(mu, sigma)]))
+                wk = np.dot(sqrt_of_Q, np.array([np.random.normal(mu, sigma), np.random.normal(mu, sigma), np.random.normal(mu, sigma), np.random.normal(mu, sigma)]))
                 particles_prop[l] = np.add(np.dot(F, part), wk)
             
             if motion: #show predicted
@@ -221,30 +284,38 @@ class Main_Grid:
                 self.motion_plot(particles_prop, i+1, i+1, x_mean, y_mean)
                 
             weights = [self.size_of_block**-2 if part[0] >= self.blocks[grid].x_min and part[0] < self.blocks[grid].x_max and part[1] >= self.blocks[grid].y_min and part[1] < self.blocks[grid].y_max else 0 for part in particles_prop ]
-           
-           #Resampling
+            
+            #Resampling
             try:
                 particles = [particles_prop[p] for p, weight in enumerate(weights) if weight != 0]
                 replace = np.random.randint(0, len(particles), size= self.num_particles-len(particles))
                 replacement_particles = [particles[rep_part] for rep_part in replace]
                 particles.extend(replacement_particles)
+                resample = True
+            except:
+                resample = False
+            
+            if resample:
                 x_mean, y_mean, x_vel, y_vel = map(lambda x: sum(x)/self.num_particles, [[part[0] for part in particles], [part[1] for part in particles], [part[2] for part in particles], [part[3] for part in particles]])
                 state_particles.append(np.array([x_mean, y_mean, x_vel, y_vel])) 
                 weights = [1/self.num_particles for q in weights] 
-                
+            
                 if motion: #show updated
                     plt.clf()
                     self.motion_plot(particles, i+1, i+1, x_mean, y_mean)
-            except:
-                print('Time:',str(i+1))
-                #x_mean, y_mean, x_vel, y_vel = map(lambda x: sum(x)/self.num_particles, [[part[0] for part in particles_prop], [part[1] for part in particles_prop], [part[2] for part in particles_prop], [part[3] for part in particles_prop]])
-                #plt.clf()
-                #self.motion_plot(particles_prop, i+1, 'All', x_mean, y_mean)
-                #self.plot_truth(i+1, 'r*--', 11)
-                return particles_prop, 0
-                sys.exit()
-            
-        return state_particles, 1
+            else: #must reinitialize since filter failed
+                del particles[:]
+                for n in range(self.num_particles):
+                    particles.append(np.array([random.uniform(self.blocks[self.grid_association[i+1]].x_min, self.blocks[self.grid_association[i+1]].x_max), random.uniform(self.blocks[self.grid_association[i+1]].y_min, self.blocks[self.grid_association[i+1]].y_max), np.random.normal(mu, sigma), np.random.normal(mu, sigma)]))    
+                
+                x_mean, y_mean, x_vel, y_vel = map(lambda x: sum(x)/self.num_particles, [[part[0] for part in particles], [part[1] for part in particles], [part[2] for part in particles], [part[3] for part in particles]])
+                state_particles.append(np.array([x_mean, y_mean, x_vel, y_vel])) 
+
+                if motion: #show resampled
+                    plt.clf()
+                    self.motion_plot(particles, i+1, i+1, x_mean, y_mean)
+                
+        return state_particles
     
     def motion_plot(self, particles, num, truth, x_mean, y_mean):
         plt.grid(True)
@@ -289,9 +360,7 @@ class Main_Grid:
         if num != 'All':
             plt.plot(self.states[num][0], self.states[num][1], line, label= 'Truth', zorder = z)
         elif num == 'All':
-            plt.plot([x for x, y, xvel, yvel in self.states], [y for x, y, xvel, yvel in self.states], 'b*', label= 'Truth')
-        
-        
+            plt.plot([x for x, y, xvel, yvel in self.states], [y for x, y, xvel, yvel in self.states], 'b*--', label= 'Truth')
         
     def plot_grid(self):
         plt.figure()
@@ -340,7 +409,7 @@ class Main_Grid:
             sys.exit()
         
     def Kalman_Filter(self, x_pos_relevant, y_pos_relevant, smoother):
-        process_noise = 0.01
+        process_noise = self.process_noise
         cov_measure = np.array([self.R, 0, 0, 0, 0, self.R, 0, 0, 0, 0, 0, 0.01, 0, 0, 0, 0.01]).reshape((4,4))
         C = np.array([[1, 0, 0, 0], [0, 1, 0, 0]]) #only looking at position of target in 2D
         state_update_forward, cov_update_forward = self.Forward_filter(cov_measure, C, x_pos_relevant, y_pos_relevant, process_noise)
@@ -426,6 +495,7 @@ class Main_Grid:
          return smooth_state, smooth_cov
  
 if __name__=="__main__":
+    import Parallel as Pll
     main()
 
 
